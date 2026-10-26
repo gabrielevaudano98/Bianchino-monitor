@@ -1,0 +1,102 @@
+name: Controllo esterno Bianchino Preview
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Prova controllata su percorso inesistente; con avvisi abilitati invia un’email"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bianchino-preview-monitor
+  cancel-in-progress: false
+
+env:
+  MONITOR_ORIGIN: "https://bianchino-preview-20261025-gabrieles-projects-ab5a9721.vercel.app"
+  MONITOR_EXPIRES_AT: "2026-11-01T07:11:27Z"
+  MONITOR_REGION: "fra1"
+
+jobs:
+  lifetime:
+    if: github.repository == 'gabrielevaudano98/Bianchino-monitor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    outputs:
+      active: ${{ steps.clock.outputs.active }}
+    steps:
+      - name: Controlla scadenza
+        id: clock
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const expiry = Date.parse(process.env.MONITOR_EXPIRES_AT);
+          if (!Number.isFinite(expiry)) process.exit(1);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `active=${Date.now() < expiry}\n`);
+          NODE
+
+  monitor:
+    needs: lifetime
+    if: needs.lifetime.outputs.active == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, verified 26 October 2026
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - name: Verifica disponibilità
+        env:
+          MONITOR_PROTECTION_BYPASS: ${{ secrets.MONITOR_PROTECTION_BYPASS }}
+          MONITOR_RESEND_API_KEY: ${{ secrets.MONITOR_RESEND_API_KEY }}
+          MONITOR_ALERT_TO: ${{ secrets.MONITOR_ALERT_TO }}
+          MONITOR_ALERT_FROM: ${{ secrets.MONITOR_ALERT_FROM }}
+          MONITOR_NOTIFICATIONS_ENABLED: ${{ vars.MONITOR_NOTIFICATIONS_ENABLED }}
+          MONITOR_TEST_ALERT: ${{ inputs.test_alert }}
+        shell: bash
+        run: |
+          args=()
+          if [ "$MONITOR_NOTIFICATIONS_ENABLED" = "true" ]; then args+=(--notify); fi
+          if [ "$MONITOR_TEST_ALERT" = "true" ]; then args+=(--test-alert); fi
+          node monitor.mjs "${args[@]}"
+
+  retire:
+    needs: lifetime
+    if: needs.lifetime.outputs.active == 'false'
+    permissions:
+      actions: write
+      contents: none
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Disattiva questo workflow dopo la scadenza
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const expiry = Date.parse(process.env.MONITOR_EXPIRES_AT);
+          if (!Number.isFinite(expiry) || Date.now() < expiry) process.exit(1);
+          const repo = process.env.GITHUB_REPOSITORY;
+          if (repo !== "gabrielevaudano98/Bianchino-monitor") process.exit(1);
+          try {
+            const response = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/monitor.yml/disable`, {
+              method: 'PUT', redirect: 'manual',
+              headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+              signal: AbortSignal.timeout(15000),
+            });
+            if (response.status !== 204) throw Error('retirement_unconfirmed');
+            console.log('Monitor disattivato alla scadenza.');
+          } catch {
+            console.error('Disattivazione non confermata; i controlli applicativi restano comunque fermi dopo la scadenza.');
+            process.exitCode = 1;
+          }
+          NODE

@@ -1,0 +1,12 @@
+{
+  "preparedAt": "2026-10-26T12:52:53.828Z",
+  "published": false,
+  "repository": "gabrielevaudano98/Bianchino-monitor",
+  "expiresAt": "2026-11-01T07:11:27Z",
+  "hashes": {
+    "monitor.mjs": "be3dc41012ea3bb7f3057ebc533a833ad35c480c50eb5f9874149b639cba71ed",
+    ".github/workflows/monitor.yml": "ffe8898a0156183035315dcb5717fdf19bd6a42e7214d91fa81b56c980d17677",
+    "monitor-config.json": "6a3b98a588a776cfaa7d47fe3ad9ab1f342d42b1e19cc3b6b8deebb7b42c1ff4",
+    "README.md": "c5af50f1913480bbe3e37597d1ce70a77e512474e87299bafc40becc7eea5916"
+  }
+}
